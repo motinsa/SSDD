@@ -4,7 +4,7 @@
 *			Escuela de Ingeniería y Arquitectura - Universidad de Zaragoza
 * FECHA: septiembre de 2021
 * FICHERO: client.go
-* DESCRIPCIÓN: cliente completo para los cuatro escenarios de la práctica 3
+* DESCRIPCIÓN: cliente completo para los cuatro escenarios de la práctica 3 hola
 */
 package main
 
