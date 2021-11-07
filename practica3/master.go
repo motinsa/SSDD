@@ -6,20 +6,20 @@
 * FICHERO: worker.go
 * DESCRIPCIÓN: contiene la funcionalidad esencial para realizar los servidores
 *				correspondientes la practica 3
-*/
+ */
 package main
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"practica3/com"
 	"sync"
 	"time"
-	"fmt"
-	"practica3/com"
 )
 
 const (
@@ -30,12 +30,10 @@ const (
 )
 
 type PrimesImpl struct {
-	delayMaxMilisegundos int
-	delayMinMiliSegundos int
-	behaviourPeriod      int
-	behaviour            int
-	i                    int
-	mutex                sync.Mutex
+	WorkerConf []com.Config
+	TimeOut	int
+	reqChan	chan com.TPInterval
+	repChan chan []int
 }
 
 func isPrime(n int) (foundDivisor bool) {
@@ -67,66 +65,29 @@ func findPrimes(interval com.TPInterval) (primes []int) {
 // POST: FindPrimes devuelve todos los números primos comprendidos en el
 // 		intervalo [interval.A, interval.B]
 func (p *PrimesImpl) FindPrimes(interval com.TPInterval, primeList *[]int) error {
-	p.mutex.Lock()
-	if p.i%p.behaviourPeriod == 0 {
-		p.behaviourPeriod = rand.Intn(20-2) + 2
-		options := rand.Intn(100)
-		if options > 90 {
-			p.behaviour = CRASH
-		} else if options > 60 {
-			p.behaviour = DELAY
-		} else if options > 40 {
-			p.behaviour = OMISSION
-		} else {
-			p.behaviour = NORMAL
-		}
-		p.i = 0
-	}
-	p.i++
-	p.mutex.Unlock()
-	switch p.behaviour {
-	case DELAY:
-		seconds := rand.Intn(p.delayMaxMilisegundos-p.delayMinMiliSegundos) + p.delayMinMiliSegundos
-		time.Sleep(time.Duration(seconds) * time.Millisecond)
-		*primeList = findPrimes(interval)
-	case CRASH:
-		os.Exit(1)
-	case OMISSION:
-		option := rand.Intn(100)
-		if option > 65 {
-			time.Sleep(time.Duration(10000) * time.Second)
-			*primeList = findPrimes(interval)
-		} else {
-			*primeList = findPrimes(interval)
-		}
-	case NORMAL:
-		*primeList = findPrimes(interval)
-	default:
-		*primeList = findPrimes(interval)
-	}
+
 	return nil
 }
-
+func New() *PrimesImpl {
+	h := &PrimesImpl{}
+	err := rpc.Register(h)
+	if err != nil {
+		panic(err)
+	}
+	return h
+}
 func main() {
 	if len(os.Args) == 2 {
-		time.Sleep(10 * time.Second)
-		rand.Seed(time.Now().UnixNano())
-		primesImpl := new(PrimesImpl)
-		primesImpl.delayMaxMilisegundos = 4000
-		primesImpl.delayMinMiliSegundos = 2000
-		primesImpl.behaviourPeriod = 4
-		primesImpl.i = 1
-		primesImpl.behaviour = NORMAL
-		rand.Seed(time.Now().UnixNano())
-
-		rpc.Register(primesImpl)
+		request := make(chan com.TPInterval)
+		respuesta := make(chan []int)
+		pi :=PrimesImpl{config,10000,request,respuesta}
+		rpc.Register(&pi)
 		rpc.HandleHTTP()
-		l, e := net.Listen("tcp", os.Args[1])
-		if e != nil {
-			log.Fatal("listen error:", e)
+		l, e := net.Listen("tcp",os.Args[1]+":"+os.Args[2])
+		if e != nil{
+			log.Fatal("listen error:",e)
 		}
 		http.Serve(l, nil)
-	} else {
-		fmt.Println("Usage: go run worker.go <ip:port>")
 	}
+	
 }
