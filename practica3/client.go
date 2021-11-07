@@ -2,73 +2,92 @@
 * AUTOR: Rafael Tolosana Calasanz
 * ASIGNATURA: 30221 Sistemas Distribuidos del Grado en Ingeniería Informática
 *			Escuela de Ingeniería y Arquitectura - Universidad de Zaragoza
-* FECHA: septiembre de 2021
-* FICHERO: client.go
-* DESCRIPCIÓN: cliente completo para los cuatro escenarios de la práctica 3 hola
-*/
+* FECHA: octubre de 2021
+* FICHERO: worker.go
+* DESCRIPCIÓN: contiene la funcionalidad esencial para realizar los servidores
+*				correspondientes la practica 3
+ */
 package main
 
 import (
-    "fmt"
-    "time"
-    "practica3/com"
-    "os"
-    "net/rpc"
-    "log"
-    "math/rand"
-    "sync"
+	"fmt"
+	"log"
+	"math/rand"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+	"practica3/com"
+	"sync"
+	"time"
 )
 
-func checkError(err error) {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Fatal error: %s", err.Error())
-		os.Exit(1)
-	}
+const (
+	NORMAL   = iota // NORMAL == 0
+	DELAY    = iota // DELAY == 1
+	CRASH    = iota // CRASH == 2
+	OMISSION = iota // IOTA == 3
+)
+
+type PrimesImpl struct {
+	WorkerConf []com.Config
+	TimeOut	int
+	reqChan	chan com.TPInterval
+	repChan chan []int
 }
 
-// sendRequest realiza una petición RPC al servidor. Cada petición 
-// envía únicamente el intervalo en el cual se desea que el servidor encuentre los
-// números primos. La invocación RPC devuelve un slice de enteros
-// sendRequest escribe por pantalla id_peticion tiempo_observado
-func sendRequest(endpoint string, id int, interval com.TPInterval, wg *sync.WaitGroup){
-    defer wg.Done()
-	start := time.Now()
-	client, err := rpc.DialHTTP("tcp", endpoint)
-	if err != nil {
-		log.Fatal("dialing:", err)
+func isPrime(n int) (foundDivisor bool) {
+	foundDivisor = false
+
+	for i := 2; (i < n) && !foundDivisor; i++ {
+		foundDivisor = (n%i == 0)
 	}
-	var reply []int
-	err = client.Call("PrimesImpl.FindPrimes", interval, &reply)
-	if err != nil {
-		log.Fatal("primes error:", err)
-	}
-	fmt.Println(id, " ", time.Since(start))
+	return !foundDivisor
 }
 
+func (p *PrimesImpl) Stop(n int, result *int) error {
+	os.Exit(n)
+	return nil
+}
 
-func main(){
-    var tts int
-    var wg *sync.WaitGroup = new(sync.WaitGroup)
+// PRE: verdad
+// POST: IsPrime devuelve verdad si n es primo y falso en caso contrario
+func findPrimes(interval com.TPInterval) (primes []int) {
+	for i := interval.A; i <= interval.B; i++ {
+		if isPrime(i) {
+			primes = append(primes, i)
+		}
+	}
+	return primes
+}
 
-    if len(os.Args) == 2 {
-        endpoint := os.Args[1]
-        numIt := 100
-        maxIntvl := 70000
-        minIntvl := 1000
-        maxSegundos := 5000
-        minSegundos := 1000
-        wg.Add(numIt)
-        for i := 1; i <= numIt; i++ {
-        	if i%10 == 1 {
-			    tts = rand.Intn(maxSegundos-minSegundos) + minSegundos
-		    }
-		    n := rand.Intn(maxIntvl-minIntvl*2) + minIntvl*2
-		    interval := com.TPInterval{minIntvl, n}
-            go sendRequest(endpoint, i, interval, wg)
-            time.Sleep(time.Duration(tts) * time.Millisecond)
-        }
-        wg.Wait()
-    } else {
-        fmt.Println("Usage: go run client.go <ip_server:port>")
-    }
+// PRE: interval.A < interval.B
+// POST: FindPrimes devuelve todos los números primos comprendidos en el
+// 		intervalo [interval.A, interval.B]
+func (p *PrimesImpl) FindPrimes(interval com.TPInterval, primeList *[]int) error {
+
+	return nil
+}
+func New() *PrimesImpl {
+	h := &PrimesImpl{}
+	err := rpc.Register(h)
+	if err != nil {
+		panic(err)
+	}
+	return h
+}
+func main() {
+	if len(os.Args) == 2 {
+		request := make(chan com.TPInterval)
+		respuesta := make(chan []int)
+		pi :=PrimesImpl{config,10000,request,respuesta}
+		rpc.Register(&pi)
+		rpc.HandleHTTP()
+		l, e := net.Listen("tcp",os.Args[1]+":"+os.Args[2])
+		if e != nil{
+			log.Fatal("listen error:",e)
+		}
+		http.Serve(l, nil)
+	}
+	
 }
