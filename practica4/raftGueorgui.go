@@ -319,7 +319,7 @@ func (nr *NodoRaft) enviarPeticionVoto(nodo int, args *RequestVoteArgs,
 	return ok
 }
 
-func (nr *NodoRaft) gestionLider(){
+/*func (nr *NodoRaft) gestionLider(){
 	for true{
 		//generar un tiemout aleatorio
 		//nr.mux.Lock()
@@ -334,8 +334,8 @@ func (nr *NodoRaft) gestionLider(){
 		case 2: // Si es líder, enviar latido
 		
 		default:
-			/* code */
+			
 			return
 		}
 	}
-}
+}*/
