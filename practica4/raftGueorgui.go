@@ -59,7 +59,20 @@ type DatosRegistro struct{
 	Valor 		int
 }
 
+type ArgsAppend  struct{
+	Term 			int
+	LeaderId		int
+	PrevLogIndex	int	// Indice del registro inmediatamente anterior a el/los que viene/n ahora
 
+	PrevLogTerm		int // Mandato del registro inmediatamente anterior
+	Entries 		[]DatosRegistro // Se podría enviar más de una entrada por eficiencia
+	LeaderCommit	int // Última entrada comprometida del líder		
+}
+
+type RespuestaAppend struct{
+	Term  			int // Mandato actual, por si el líder se tiene que actualizar
+	Success 		bool // Verdad si el seguidor tenia el mismo PrevLogIndex and PrevLogTerm
+}
 // Tipo de dato Go que representa un solo nodo (réplica) de raft
 //
 type NodoRaft struct {
@@ -75,7 +88,7 @@ type NodoRaft struct {
 	votedFor    int
 	log 		[]DatosRegistro
 
-	comitIndex int
+	commitIndex int
 	lastApplied int
 	estado string
 
@@ -132,7 +145,7 @@ func NuevoNodo(nodos []*rpc.Client, yo int, canalAplicar chan AplicaOperacion)
 	// Your initialization code here (2A, 2B)
 	nr.lastApplied = -1
 	nr.votedFor = -1
-	nr.comitIndex = -1
+	nr.commitIndex = -1
 	nr.currentTerm = -1
 	nr.estado = "Seguidor"
 	nr.nextIndex = make([]int,len(nr.nodos))
@@ -189,7 +202,7 @@ func (nr *NodoRaft) ObtenerEstado() (int, int, bool) {
 // El segundo valor es el mandato en curso
 // El tercer valor es true si el nodo cree ser el lider
 func (nr *NodoRaft) SometerOperacion(operacion interface{}) (int, int, bool) {
-	indice := nr.comitIndex+1
+	indice := nr.commitIndex+1
 	mandato := nr.currentTerm
 	EsLider := nr.votedFor == nr.yo
 	
@@ -251,18 +264,14 @@ func (nr *NodoRaft) PedirVoto(args *ArgsPeticionVoto, reply *RespuestaPeticionVo
 	}else{ // Sino, se sigue comprobando. 
 		// No se ha votado, o se ha votado al que pide y la entrada del que pide está al menos tan
 		// actualizado. !!!!!!!!!! Añadir que la última entrada local comprometida sea de un mandato menor que el actual
-		if((nr.votedFor == 0 || nr.votedFor == args.CandidateId) && args.LastLogIndex >= nr.comitIndex ){
+		if((nr.votedFor == 0 || nr.votedFor == args.CandidateId) && args.LastLogIndex >= nr.commitIndex ){
 			reply.VoteGranted=true
 		}
 		else{
 			reply.VoteGranted = false
 			reply.Term = nr.currentTerm
 		}
-
-
 	}
-
-
 }
 
 
@@ -296,46 +305,105 @@ func (nr *NodoRaft) PedirVoto(args *ArgsPeticionVoto, reply *RespuestaPeticionVo
 func (nr *NodoRaft) enviarPeticionVoto(nodo int, args *RequestVoteArgs,
 												reply *RequestVoteReply) bool {
 	
-	// Esta función la invoca el nodo candidato, que para el nodo en la posicion int
-	// llama a CallTiemout con el método PedirVoto, para que el seguidor ejecute esa
-	// función
-
-	CallTimeout(nr.nodos[nodo], "NodoRaft.PedirVoto", args, reply , 100*time.Millisecond) 											
+	err := CallTimeout(nr.nodos[nodo], "NodoRaft.PedirVoto", args, reply , 100*time.Millisecond) 											
 	
-	/*nr.Lock()
+	nr.Lock()
 	defer nr.Unlock()
-	ok := true
+	ok := false
 
-	if(reply.VoteGranted==false){ 
-		if(reply.Term > nr.currentTerm){ // Actualizar el mandato actual si no es el suyo
-			nr.currentTerm = reply.Term
-			ok := bool
+	if (err == nil){ // El nodo ha devuelto un resultado
+
+		if(!reply.VoteGranted){ 
+			if(reply.Term > nr.currentTerm){ // Actualizar el mandato actual si no es el suyo
+				nr.currentTerm = reply.Term
+				nr.estado = "Follower"
+			}
 		}
-		ok = false
-	}*/
-	
-
+		else{
+			ok = true
+		}
+	}
 
 	return ok
 }
 
-/*func (nr *NodoRaft) gestionLider(){
+func (nr *NodoRaft) gestionLider(){
+	
+	minTimeout := 50 // En milisegundos, máxima frecuencia de los latidos
+	maxTimeout := 150
+	maxElectionTimeout := 300
+	tiempoElecciones := 0
+
 	for true{
 		//generar un tiemout aleatorio
-		//nr.mux.Lock()
-		switch nr.status {
-		case 0: //Si es seguidor, esperar timeout
-			randTiempo := rand.Intn()
+		nr.mux.Lock()
+		status := nr.estado
+		nr.mux.Unlock()
+		
+		switch status {
+		case "Follower": //Si es seguidor, esperar timeout
+			randTiempo := rand.Intn(maxTimeout - minTimeout) + minTimeout
 			select
 				case
-				case <-time.After( * time.Second):
-		case 1: // Si es candidadato, enviar peticiones
+				case <-time.After(randTiempo * time.Millisecond):
+					nr.estado = "Candidate"
+					nr.currentTerm++
+		case "Candidate": // Si es candidadato, enviar peticiones
 
-		case 2: // Si es líder, enviar latido
+			nr.votedFor = nr.yo
+			electionTimer = rand.Intn(maxElectionTimeout - maxTimeout) + maxTimeout
+			
+			var chanResp = make(chan bool)
+			go nr.HacerPeticiones(chanResp)
+			
+			select {
+				case res <- chanResp:
+					if(res){
+						nr.estado = "Leader"
+					}
+
+				case <- time.After(electionTimer * time.Millisecond):
+					tiempoElecciones += electionTimer
+				case /* Esperar AppendEntriesRPC */ :
+
+			}
+		case "Leader": // Si es líder, enviar latido
 		
 		default:
-			
-			return
+			// Si no es de ninguno de estos tipos no se hace nada. Se puede volver a poner a seguidor
+			//nr.status = "Follower"
 		}
 	}
-}*/
+}
+
+func (nr *NodoRaft) HacerPeticiones(chanResp chan bool){
+	
+	votos := 1
+	args := RequestVoteArgs{}
+	args.Term = nr.currentTerm
+	args.CandidateId = nr.yo
+	args.LastLogIndex = nr.commitIndex
+	args.LastLogTerm = nr.log[nr.commitIndex].Term
+	
+
+	for i := 1; i <= len(nr.nodos); i++{
+
+		if(i == nr.yo){ continue }
+
+		reply := RequestVoteReply{}
+		res := nr.enviarPeticionVoto(i,args,reply)
+		if(res){ // Permiso concedido
+			votos++
+		}
+	}
+
+	// Si obtiene mayoría y sigue siendo candidato
+	if((votos >= (len(nr.nodos) / 2) + 1) && nr.estado == "Candidate"){ 
+		chanResp <- true
+	}
+	else{ // No ha obtenido mayoría o ya no es candidato
+		chanResp <-false
+	}
+
+}
+
