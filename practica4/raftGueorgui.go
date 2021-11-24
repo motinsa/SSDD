@@ -90,7 +90,12 @@ type NodoRaft struct {
 
 	commitIndex int
 	lastApplied int
-	estado string
+	estado 		string
+
+	wg  		sync.WaitGroup
+	aceptanCandidato 	int
+
+	appendEntry  	chan ArgsAppend
 
 	// Se reinician tras elección
 	nextIndex []int // Siguiente entrada de registro a enviar a cada servidor
@@ -150,6 +155,7 @@ func NuevoNodo(nodos []*rpc.Client, yo int, canalAplicar chan AplicaOperacion)
 	nr.estado = "Seguidor"
 	nr.nextIndex = make([]int,len(nr.nodos))
 	nr.matchIndex = make([]int,len(nr.nodos))
+	nr.wg = sync.WaitGroup{}
 
 	return nr
 }
@@ -349,22 +355,47 @@ func (nr *NodoRaft) gestionLider(){
 					nr.estado = "Candidate"
 					nr.currentTerm++
 		case "Candidate": // Si es candidadato, enviar peticiones
-
-			nr.votedFor = nr.yo
 			electionTimer = rand.Intn(maxElectionTimeout - maxTimeout) + maxTimeout
+			nr.mux.Lock()
+			nr.votedFor = nr.yo
 			
-			var chanResp = make(chan bool)
-			go nr.HacerPeticiones(chanResp)
+			//var chanResp = make(chan bool)
+			//go nr.HacerPeticiones(chanResp)
+			votos := 1
+			args := RequestVoteArgs{}
+			args.Term = nr.currentTerm
+			args.CandidateId = nr.yo
+			args.LastLogIndex = nr.commitIndex
+			args.LastLogTerm = nr.log[nr.commitIndex].Term
 			
+			nr.aceptanCandidato = 1
+			nr.mux.Unlock() // !!!!!!!!!!!! No se si habría que posponer el unlock un poco más
+			nr.wg.Add(len(nr.nodos)-1)
+			done := make(chan struct{})
+
+			go func(){ // Esperar a que acaben todas las gorutinas y cerrar canal (para el select-case)
+				nr.wg.Wait()
+				close(done)
+			}()
+
+			for i := 1; i <= len(nr.nodos); i++{
+
+				if(i == nr.yo){ continue }
+
+				reply := RequestVoteReply{}
+				go nr.enviarPeticionVoto(i,args,reply)
+			}
+
 			select {
-				case res <- chanResp:
+				case <-done:
 					if(res){
 						nr.estado = "Leader"
+						// Enviar latido
 					}
 
 				case <- time.After(electionTimer * time.Millisecond):
 					tiempoElecciones += electionTimer
-				case /* Esperar AppendEntriesRPC */ :
+				case newAppend <- nr.appendEntry: // Mensaje de otro nodo lider
 
 			}
 		case "Leader": // Si es líder, enviar latido
@@ -376,7 +407,7 @@ func (nr *NodoRaft) gestionLider(){
 	}
 }
 
-func (nr *NodoRaft) HacerPeticiones(chanResp chan bool){
+/*func (nr *NodoRaft) HacerPeticiones(chanResp chan bool){
 	
 	votos := 1
 	args := RequestVoteArgs{}
@@ -385,16 +416,19 @@ func (nr *NodoRaft) HacerPeticiones(chanResp chan bool){
 	args.LastLogIndex = nr.commitIndex
 	args.LastLogTerm = nr.log[nr.commitIndex].Term
 	
-
+	nr.aceptanCandidato = 0
+	nr.wg.Add(len(nr.nodos)-1)
+	done := make(chan struct{})
+	go func(){ // Esperar a que acaben todas las gorutinas y cerrar canal (para el select-case)
+		nr.wg.Wait()
+		close(done)
+	}()
 	for i := 1; i <= len(nr.nodos); i++{
 
 		if(i == nr.yo){ continue }
 
 		reply := RequestVoteReply{}
-		res := nr.enviarPeticionVoto(i,args,reply)
-		if(res){ // Permiso concedido
-			votos++
-		}
+		go nr.enviarPeticionVoto(i,args,reply)
 	}
 
 	// Si obtiene mayoría y sigue siendo candidato
@@ -405,5 +439,4 @@ func (nr *NodoRaft) HacerPeticiones(chanResp chan bool){
 		chanResp <-false
 	}
 
-}
-
+}*/
