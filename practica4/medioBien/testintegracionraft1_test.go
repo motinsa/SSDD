@@ -21,16 +21,19 @@ const (
 	MAQUINA1      = "127.0.0.1"
 	MAQUINA2      = "127.0.0.1"
 	MAQUINA3      = "127.0.0.1"
+	MAQUINA4	  = "127.0.0.1"
 
 	//puertos
 	PUERTOREPLICA1 = "29011"
 	PUERTOREPLICA2 = "29012"
 	PUERTOREPLICA3 = "29013"
+	PUERTOREPLICA4 = "29014"
 
 	//nodos replicas
 	REPLICA1 = MAQUINA1 + ":" + PUERTOREPLICA1
 	REPLICA2 = MAQUINA2 + ":" + PUERTOREPLICA2
 	REPLICA3 = MAQUINA3 + ":" + PUERTOREPLICA3
+	REPLICA4 = MAQUINA4 + ":" + PUERTOREPLICA4
 
 	// paquete main de ejecutables relativos a PATH previo
 	EXECREPLICA = "/home/equipo/IngenieriaInformatica/QuintoSemestre/SistemasDistribuidos/practica4/Practica5/CodigoEsqueleto/raft/cmd/srvraft/main.go"
@@ -55,9 +58,9 @@ func TestPrimerasPruebas(t *testing.T) { // (m *testing.M) {
 	// <setup code>
 	// Crear canal de resultados de ejecuciones ssh en maquinas remotas
 	cfg := makeCfgDespliegue(t,
-							3,
-							[]string{REPLICA1, REPLICA2, REPLICA3},
-							[]bool{true, true, true})
+							4,
+							[]string{REPLICA1, REPLICA2, REPLICA3, REPLICA4},
+							[]bool{true, true, true,true})
 
 	// tear down code
 	// eliminar procesos en máquinas remotas
@@ -80,6 +83,8 @@ func TestPrimerasPruebas(t *testing.T) { // (m *testing.M) {
 	// Test4: Tres operaciones comprometidas en configuración estable
 	t.Run("T4:tresOperacionesComprometidasEstable",
 		func(t *testing.T) { cfg.tresOperacionesComprometidasEstable(t) })
+
+	
 }
 
 
@@ -88,9 +93,9 @@ func TestAcuerdosConFallos(t *testing.T) { // (m *testing.M) {
 	// <setup code>
 	// Crear canal de resultados de ejecuciones ssh en maquinas remotas
 	cfg := makeCfgDespliegue(t,
-							3,
-							[]string{REPLICA1, REPLICA2, REPLICA3},
-							[]bool{true, true, true})
+							4,
+							[]string{REPLICA1, REPLICA2, REPLICA3,REPLICA4},
+							[]bool{true, true, true,true})
 
 	// tear down code
 	// eliminar procesos en máquinas remotas
@@ -169,14 +174,15 @@ func (cfg *configDespliegue) soloArranqueYparadaTest1(t *testing.T) {
 	cfg.startDistributedProcesses()
 
 	// Comprobar estado replica 0
-	fmt.Println("Esta parte hecha2")
 	cfg.comprobarEstadoRemoto (0, 0, false, -1)
-fmt.Println("Esta parte hecha3")
 	// Comprobar estado replica 1
 	cfg.comprobarEstadoRemoto (1, 0, false, -1)
 
 	// Comprobar estado replica 2
 	cfg.comprobarEstadoRemoto (2, 0, false, -1)
+
+	// Comprobar estado replica 3
+	cfg.comprobarEstadoRemoto (3, 0, false, -1)
 	fmt.Println("Acaba de comprobar todo")
 	// Parar réplicas almacenamiento en remoto
 	cfg.stopDistributedProcesses()
@@ -194,7 +200,7 @@ func (cfg *configDespliegue) elegirPrimerLiderTest2(t *testing.T) {
 
 	// Se ha elegido lider ?
 	fmt.Printf("Probando lider en curso\n")
-	cfg.pruebaUnLider(3)
+	cfg.pruebaUnLider(4)
 
 
 	// Parar réplicas alamcenamiento en remoto
@@ -212,16 +218,22 @@ func (cfg *configDespliegue) falloAnteriorElegirNuevoLiderTest3(t *testing.T) {
 	cfg.startDistributedProcesses()
 
 	fmt.Printf("Lider inicial\n")
-	cfg.pruebaUnLider(3)
+	cfg.pruebaUnLider(4)
 
 
 	// Desconectar lider
 	// ???
+	var reply raft.Vacio
+	err := cfg.nodosRaft[0].CallTimeout("NodoRaft.ParaNodo",
+								raft.Vacio{}, &reply, 100 * time.Millisecond)
+	check.CheckError(err, "Error en llamada RPC Para nodo")
+
+	time.Sleep(1000 * time.Millisecond)
+	cfg.conectados[0] =  false
 
 	fmt.Printf("Comprobar nuevo lider\n")
-	cfg.pruebaUnLider(3)
+	cfg.pruebaUnLider(4)
 	
-
 	// Parar réplicas almacenamiento en remoto
 	cfg.stopDistributedProcesses()  //parametros
 
@@ -232,7 +244,9 @@ func (cfg *configDespliegue) falloAnteriorElegirNuevoLiderTest3(t *testing.T) {
 func (cfg *configDespliegue) tresOperacionesComprometidasEstable(t *testing.T) {
 	t.Skip("SKIPPED tresOperacionesComprometidasEstable")
 
-	// A completar ???
+	fmt.Println(t.Name(), ".....................")
+
+	cfg.startDistributedProcesses()
 }
 
 // Se consigue acuerdo a pesar de desconexiones de seguidor -- 3 NODOS RAFT
@@ -363,11 +377,12 @@ func (cfg *configDespliegue) startDistributedProcesses() {
 //
 func (cfg *configDespliegue) stopDistributedProcesses() {
 	var reply raft.Vacio
-	fmt.Println("Antes de para los procesos")
-	for _, endPoint := range cfg.nodosRaft {
-		err := endPoint.CallTimeout("NodoRaft.ParaNodo",
-								raft.Vacio{}, &reply, 100 * time.Millisecond)
-		check.CheckError(err, "Error en llamada RPC Para nodo")
+	for i, endPoint := range cfg.nodosRaft {
+		if cfg.conectados[i] {
+			err := endPoint.CallTimeout("NodoRaft.ParaNodo",
+									raft.Vacio{}, &reply, 100 * time.Millisecond)
+			check.CheckError(err, "Error en llamada RPC Para nodo")
+		}
 	}
 	fmt.Println("Se paran los procesos")
 }
@@ -378,7 +393,6 @@ func (cfg *configDespliegue) comprobarEstadoRemoto(idNodoDeseado int,
 	idNodo, mandato, esLider, idLider := cfg.obtenerEstadoRemoto(idNodoDeseado)
 
 	cfg.t.Log("Estado replica 0: ", idNodo, mandato, esLider, idLider, "\n")
-	fmt.Println("Esta parte hechae")
 	if idNodo != idNodoDeseado || mandato != mandatoDeseado ||
 						esLider != esLiderDeseado || idLider != IdLiderDeseado {
 	  cfg.t.Fatalf("Estado incorrecto en replica %d en subtest %s con infos nodo: %d mandato: %d  y deseado: %d",
