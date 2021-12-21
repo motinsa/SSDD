@@ -99,8 +99,10 @@ type NodoRaft struct {
 
 	// Se reinician tras elección
 	nextIndex  []int // Siguiente entrada de registro a enviar a cada servidor
-	matchIndex []int // Indice de la mayor entrada de registro de los servidores que sabemos que está replicada en el líder
-	mayoriaLog []int // Se mantiene la cuenta de los seguidores que han guardado la info correspondiente a las entradas 
+	matchIndex []int // Indice de la mayor entrada de registro de los servidores
+					 // que sabemos que está replicada en el líder
+	mayoriaLog []int // Se mantiene la cuenta de los seguidores que han guardado
+					 // la info correspondiente a las entradas 
 	//NodosActivos	[]bool
 	// mirar figura 2 para descripción del estado que debe mantenre un nodo Raft
 }
@@ -146,7 +148,7 @@ func NuevoNodo(nodos []rpctimeout.HostPort, yo int,
 				panic(err.Error())
 			}
 			logOutputFile, err := os.OpenFile(fmt.Sprintf("%s/%s.txt",
-				kLogOutputDir, logPrefix), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+				kLogOutputDir,logPrefix),os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
 			if err != nil {
 				panic(err.Error())
 			}
@@ -204,7 +206,8 @@ func (nr *NodoRaft) obtenerEstado() (int, int, bool, int) {
 	var idLider int = nr.IdLider
 
 	yo = nr.Yo
-	fmt.Println("----El mandato es:",nr.currentTerm," para el nodo, ", nr.Yo, " habiendo votado a ",nr.votedFor)
+	fmt.Println("----El mandato es:",nr.currentTerm," para el nodo, ", nr.Yo, 
+											" habiendo votado a ",nr.votedFor)
 	mandato = nr.currentTerm
 	if nr.IdLider == nr.Yo {
 		esLider = true
@@ -253,7 +256,8 @@ func (nr *NodoRaft) someterOperacion(operacion TipoOperacion) (int, int,
 
 	nr.logEntry++
 	indice := nr.logEntry
-	fmt.Println("Se va a guardar en el registro el nuevo valor del cliente", operacion)
+	fmt.Println("Se va a guardar en el registro el nuevo valor del cliente", 
+																	operacion)
 	nuevoDato := DatosRegistro{}
 	nuevoDato.Term, nuevoDato.Operacion  = nr.currentTerm, operacion
 	nr.log[nr.logEntry] = nuevoDato
@@ -263,7 +267,7 @@ func (nr *NodoRaft) someterOperacion(operacion TipoOperacion) (int, int,
 
 	valor :=-1
 	for valor != indice{
-		fmt.Println("*************Esperando el valor ",valor," con indice ",indice)
+		fmt.Println("**********Esperando el valor ",valor," con indice ",indice)
 		valor = <- nr.chanSometerOp
 
 		if(valor != indice){ // Valor que se acaba de comprometer no es el que se esta esperando, reenviar
@@ -297,7 +301,7 @@ type EstadoRemoto struct {
 }
 
 func (nr *NodoRaft) ObtenerEstadoNodo(args Vacio, reply *EstadoRemoto) error {
-	reply.IdNodo, reply.Mandato, reply.EsLider, reply.IdLider = nr.obtenerEstado()
+	reply.IdNodo,reply.Mandato,reply.EsLider, reply.IdLider = nr.obtenerEstado()
 	return nil
 }
 
@@ -354,13 +358,15 @@ func (nr *NodoRaft) PedirVoto(peticion *ArgsPeticionVoto,
 		reply.VoteGranted, reply.Term = false, nr.currentTerm
 
 	} else { // Sino, se sigue comprobando. No se ha votado, o se ha votado al que pide y la entrada del que pide está al menos tan actualizado. !!!!!!!!!! Añadir que la última entrada local comprometida sea de un mandato menor que el actual
-		if (nr.votedFor == peticion.CandidateId || nr.votedFor == -1|| nr.currentTerm < peticion.Term) && nr.logEntry == -1{
+		if (nr.votedFor == peticion.CandidateId || nr.votedFor == -1 || 
+						nr.currentTerm < peticion.Term) && nr.logEntry == -1{
+
 			nr.currentTerm, nr.votedFor = peticion.Term,peticion.CandidateId
 			nr.estado = "Follower"
 			reply.VoteGranted = true
 			nr.IdLider = peticion.CandidateId
 			nr.appendEntry <- true
-		}else if ((nr.votedFor == peticion.CandidateId || nr.votedFor == -1 || nr.currentTerm < peticion.Term) && ((peticion.LastLogTerm > nr.log[nr.logEntry].Term && peticion.LastLogIndex >= nr.logEntry) || peticion.LastLogTerm > nr.log[nr.logEntry].Term)) {
+		}else if ((nr.votedFor == peticion.CandidateId || nr.votedFor == -1 ||  nr.currentTerm < peticion.Term) && ((peticion.LastLogTerm > nr.log[nr.logEntry].Term && peticion.LastLogIndex >= nr.logEntry) || peticion.LastLogTerm > nr.log[nr.logEntry].Term)) {
 			nr.currentTerm, nr.votedFor = peticion.Term,peticion.CandidateId
 			nr.estado = "Follower"
 			reply.VoteGranted = true
@@ -572,8 +578,8 @@ func (nr *NodoRaft) gestionLider() {
 			
 		case "Leader": // Si es líder, enviar latido
 			nr.tareasLider()
-		default:
-			nr.estado = "Follower" // Si no es de ninguno de estos tipos no se hace nada. Se puede volver a poner a seguidor
+		default:// Si no es de ninguno de estos tipos se vuelve a seguidor
+			nr.estado = "Follower" 
 		}
 	}
 }
@@ -708,7 +714,7 @@ func(nr *NodoRaft) gestionCandidato(electionTimer int,maxElectionTimeout int){
 	case <-done: // Elección acaba en tiempo
 		nr.Mux.Lock()
 		if nr.estado != "Follower" { // No ha cambiado su estado a seguidor
-			if nr.aceptanCandidato >= nr.Mayoria { // Ha obtenido mayoría siendo candidato
+			if nr.aceptanCandidato >= nr.Mayoria { // Ha obtenido mayoría 
 				nr.Mux.Unlock()
 				for i := 0; i < len(nr.Nodos); i++ {
 
@@ -720,7 +726,7 @@ func(nr *NodoRaft) gestionCandidato(electionTimer int,maxElectionTimeout int){
 					go nr.enviarLatido(i, &args, &reply)
 				}
 				fmt.Println("El nodo ",nr.Yo,"es lider!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-			} else { // Todavía es candidato pero no ha obtenido mayoría. Nueva eleccion
+			} else { // Es candidato pero no ha obtenido mayoría. Nueva eleccion
 				//tiempoElecciones += electionTimer
 			}
 		}
