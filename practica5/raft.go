@@ -206,8 +206,6 @@ func (nr *NodoRaft) obtenerEstado() (int, int, bool, int) {
 	var idLider int = nr.IdLider
 
 	yo = nr.Yo
-	fmt.Println("----El mandato es:",nr.currentTerm," para el nodo, ", nr.Yo, 
-											" habiendo votado a ",nr.votedFor)
 	mandato = nr.currentTerm
 	if nr.IdLider == nr.Yo {
 		esLider = true
@@ -267,14 +265,12 @@ func (nr *NodoRaft) someterOperacion(operacion TipoOperacion) (int, int,
 
 	valor :=-1
 	for valor != indice{
-		fmt.Println("**********Esperando el valor ",valor," con indice ",indice)
 		valor = <- nr.chanSometerOp
 
 		if(valor != indice){ // Valor que se acaba de comprometer no es el que se esta esperando, reenviar
 			nr.chanSometerOp <- valor
 		}
 	}
-	fmt.Println("--------------Se va a devolver un reply al cliente---------------------")
 	return indice, mandato, EsLider, idLider, valorADevolver
 }
 
@@ -313,7 +309,6 @@ type ResultadoRemoto struct {
 
 func (nr *NodoRaft) SometerOperacionRaft(operacion TipoOperacion,
 	reply *ResultadoRemoto) error {
-	fmt.Println("Le llega un mensaje de un cliente")
 	reply.IndiceRegistro, reply.Mandato, reply.EsLider,
 		reply.IdLider, reply.ValorADevolver = nr.someterOperacion(operacion)
 	return nil
@@ -401,7 +396,6 @@ func (nr *NodoRaft) AppendEntries(args *ArgAppendEntries, results *Results) erro
 
 	nr.Mux.Lock()
 	defer nr.Mux.Unlock()
-	fmt.Println("inicio append ",args)
 	if args.Term < nr.currentTerm { // El mandato del seguidor es mayor que el del 'lider'.
 		results.Term = nr.currentTerm
 		results.Success = false
@@ -423,7 +417,6 @@ func (nr *NodoRaft) AppendEntries(args *ArgAppendEntries, results *Results) erro
 				nr.log[nr.logEntry] = dato
 			}
 		}
-		fmt.Println("Leader Commit ",args.LeaderCommit)
 		if args.LeaderCommit > nr.commitIndex && args.LeaderCommit > nr.logEntry { // Compara entradas comprometidas con el lider
 			nr.commitIndex = nr.logEntry
 		} else if args.LeaderCommit > nr.commitIndex && args.LeaderCommit <= nr.logEntry {
@@ -472,7 +465,6 @@ func (nr *NodoRaft) enviarPeticionVoto(nodo int, args *ArgsPeticionVoto,
 	reply *RespuestaPeticionVoto) bool {
 
 	ok := false
-	fmt.Println("El nodo ",nr.Yo," envia peticion a ",nr.Nodos[nodo])
 	err := nr.Nodos[nodo].CallTimeout("NodoRaft.PedirVoto", &args, &reply, 100*time.Millisecond)
 
 	if err == nil { // El nodo ha devuelto un resultado
@@ -496,16 +488,8 @@ func (nr *NodoRaft) enviarPeticionVoto(nodo int, args *ArgsPeticionVoto,
 
 func (nr *NodoRaft) enviarLatido(nodo int, args *ArgAppendEntries, reply *Results) {
 	if args.PrevLogIndex != -1 &&  nr.nextIndex[nodo] <= args.PrevLogIndex {
-		/*if nr.nextIndex[nodo] == args.PrevLogIndex{
-			args.Entries = make([]DatosRegistro,1)
-			args.Entries[0] = nr.log[nr.nextIndex[nodo]]
-			fmt.Println("El nodo ", nodo, " y la entrada ",args.Entries)
-		}else{*/
-		args.Entries = nr.log[nr.nextIndex[nodo] : args.PrevLogIndex+1]
-		//}
-		fmt.Println("El valor del logEntry es ",nr.logEntry, " y el de PrevLogIndex es ",args.PrevLogIndex)
-		fmt.Println(" con nextIndex ", nr.nextIndex[nodo], "del nodo ", nodo)
-		//fmt.Println("El total de los logs es ",nr.log)
+		
+		args.Entries = nr.log[nr.nextIndex[nodo] : args.PrevLogIndex+1]		
 	}
 	err := nr.Nodos[nodo].CallTimeout("NodoRaft.AppendEntries", &args, &reply, 100*time.Millisecond)
 
@@ -518,11 +502,9 @@ func (nr *NodoRaft) enviarLatido(nodo int, args *ArgAppendEntries, reply *Result
 
 		}else if reply.Term == nr.currentTerm && reply.Success { // Sigue siendo lider y el seguidor está acutalizado
 
-			fmt.Println("Todo un exitoooooooooooooooooooo ", nr.nextIndex[nodo], " con lon ",len(args.Entries), " nodo ",nodo)
 			if(len(args.Entries) != 0){
 				for i:=nr.nextIndex[nodo];i<=args.PrevLogIndex;i++{
 					nr.mayoriaLog[i]++
-					fmt.Println("El recuento ahora es ",nr.mayoriaLog[i])
 				}
 				nr.nextIndex[nodo] = nr.nextIndex[nodo]+len(args.Entries)
 			}
@@ -564,7 +546,6 @@ func (nr *NodoRaft) gestionLider() {
 			if(nr.IdLider == nr.Yo){
 				nr.chanSometerOp <- nr.lastApplied
 			}
-			fmt.Println("---------------------Se ha hecho commit de esta vaina-----------------------")
 		}
 		status := nr.estado
 		nr.Mux.Unlock()
@@ -648,12 +629,9 @@ func (nr *NodoRaft) gestionSeguidor(randTiempo int){
 
 	select {
 		case <-nr.appendEntry:
-			fmt.Println("El nodo ",nr.Yo," sigue siendo seguidor de ",nr.IdLider)
 			if nr.logEntry != -1{
-			fmt.Println("El valor de la ultima entrada del log es ",nr.log[nr.logEntry], " siendo logEntry ",nr.logEntry)
 			}
 		case <-time.After(time.Duration(randTiempo) * time.Millisecond):
-			fmt.Println("El nodo ",nr.Yo,"es seguidor y se ha acabado el tiempo de espera")
 			nr.Mux.Lock()
 			nr.estado = "Candidate"
 			nr.currentTerm++
@@ -664,16 +642,14 @@ func (nr *NodoRaft) gestionSeguidor(randTiempo int){
 
 func(nr *NodoRaft) tareasLider(){
 	time.Sleep(500 * time.Millisecond)
-	//fmt.Println("El nodo ",nr.Yo,"es lider!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 	if nr.logEntry != -1{
-		fmt.Println("El valor de la ultima entrada del log es ",nr.log[nr.logEntry].Operacion.Valor)
+		
 	}
 
 	for i := nr.commitIndex; i<=nr.logEntry;i++{
 		if i == -1{i++;}
 		if nr.mayoriaLog[i] >= nr.Mayoria{ // Nº de seguidores que han guardado el registro es mayoria. Hacer commit
 			nr.commitIndex = i
-			fmt.Println("!!!!!!!!!!!!!!!!!Mayoria!!!!!!!!!!!!!!!!!")
 		}
 	}
 
@@ -691,7 +667,6 @@ func(nr *NodoRaft) tareasLider(){
 
 func(nr *NodoRaft) gestionCandidato(electionTimer int,maxElectionTimeout int){
 
-	fmt.Println("El nodo ",nr.Yo,"es candidato con tiempo de eleccion ", maxElectionTimeout)
 	nr.wg.Add(1) // Cuando vaya a acabar la gorutina con la que se consiga la mayoría, se hace wg.Done()
 	done := make(chan struct{})
 
@@ -725,17 +700,17 @@ func(nr *NodoRaft) gestionCandidato(electionTimer int,maxElectionTimeout int){
 					reply := Results{}
 					go nr.enviarLatido(i, &args, &reply)
 				}
-				fmt.Println("El nodo ",nr.Yo,"es lider!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
 			} else { // Es candidato pero no ha obtenido mayoría. Nueva eleccion
 				//tiempoElecciones += electionTimer
 			}
 		}
 	case <-time.After(time.Duration(maxElectionTimeout) * time.Millisecond):
-		fmt.Println("Eleccion acaba sin tiempo")
+
 		nr.estado = "Candidate"
 		nr.currentTerm++
 		//tiempoElecciones += electionTimer
 	case <-nr.appendEntry: // Mensaje de otro nodo lider
-		fmt.Println("Llega mensaje de un nuevo lider siendo candidato ",nr.Yo," y su estado ahora es ",nr.estado)
+		
 	}
 }
